@@ -38,7 +38,8 @@ SamSUCKS is a from-scratch Plex client for Samsung's Tizen TVs, built for speed:
 ## Install
 
 You need:
-- a Samsung smart TV (tested on a 2022 Q60B; 2020 or newer should work),
+- a Samsung smart TV running Tizen 6.0 or newer, which is 2021 or newer
+  (tested on a 2022 Q60B and a 2021 Q70A),
 - a Mac or Linux computer on the same network as the TV,
 - a Plex Media Server.
 
@@ -180,9 +181,15 @@ scripts/        setup.sh (one-time) and deploy.sh (build + install)
 tools/          dev server, TV eval, network remote
 ```
 
-There's no bundler. The TV's browser (Chromium 69+ on Tizen 5.5+) runs ES modules
-natively, and `deploy.sh` adds `<link rel="modulepreload">` tags so every module loads
-in parallel (about 0.9 s cold start, versus 0.8 s for a minified bundle).
+There's no bundler on Tizen 6.5 and newer. The TV's browser runs ES modules natively,
+and `deploy.sh` adds `<link rel="modulepreload">` tags so every module loads in parallel
+(about 0.9 s cold start, versus 0.8 s for a minified bundle).
+
+Tizen 6.0 (2021 TVs, Chromium 76) refuses to load modules from an app's `file://`
+origin, so the app sticks on its splash screen. `deploy.sh` asks the TV for its Tizen
+version and, below 6.5, bundles the modules into one classic script with esbuild
+(via `npx`, so those TVs need Node.js on the computer you deploy from). Force it with
+`--bundle`.
 </details>
 
 <details>

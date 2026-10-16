@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://github.com/samsucks/samsucks" version="0.1.0" viewmodes="maximized">
-    <tizen:application id="SamSucks01.samsucks" package="SamSucks01" required_version="6.5"/>
+    <tizen:application id="SamSucks01.samsucks" package="SamSucks01" required_version="6.0"/>
     <content src="index.html"/>
     <icon src="icon.png"/>
     <name>SamSUCKS - Better Plex</name>

@@ -124,7 +124,8 @@ if "$TIZEN" security-profiles list 2>/dev/null | grep -q "^$PROFILE "; then
   ok "profile '$PROFILE' already exists"
 else
   PW="$(get_env TIZEN_CERT_PASSWORD)"
-  [ -n "$PW" ] || PW=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 24)
+  # Not tr < /dev/urandom | head: tr dies of SIGPIPE, and pipefail turns that into exit 141.
+  [ -n "$PW" ] || PW=$(openssl rand -hex 12)
   set_env TIZEN_CERT_PASSWORD "$PW"
   "$TIZEN" certificate -a "$PROFILE" -p "$PW" -f "$PROFILE" >/dev/null
   "$TIZEN" security-profiles add -n "$PROFILE" -a "$HOME/tizen-studio-data/keystore/author/$PROFILE.p12" -p "$PW" >/dev/null
