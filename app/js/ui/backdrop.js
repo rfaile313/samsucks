@@ -8,7 +8,7 @@
 // One shared instance sits behind every screen; two layers cross-fade.
 import { h } from '../util/dom.js';
 
-const FALLBACK = { topLeft: '1b1f2b', topRight: '0f1118', bottomLeft: '2a1414', bottomRight: '0b0d12' };
+const FALLBACK = { topLeft: '1b1f2b', topRight: '0f1118', bottomLeft: '2a2112', bottomRight: '0b0d12' };
 const DIM = 0.78; // keep text readable on bright posters
 
 function rgb(hex) {

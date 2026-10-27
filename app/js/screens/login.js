@@ -10,10 +10,10 @@ import { useAmbience } from '../ui/backdrop.js';
 
 export function LoginScreen({ onDone }) {
   const el = h('div', 'screen login');
-  const ambience = useAmbience({ topLeft: '3a1518', topRight: '161922', bottomLeft: '1b1f2b', bottomRight: '2a1012' });
+  const ambience = useAmbience({ topLeft: '3a2c10', topRight: '161922', bottomLeft: '1b1f2b', bottomRight: '2a1f0c' });
   const left = h('div', 'login-art', el);
   const art = h('img', '', left);
-  art.src = 'img/mascot-512.png';
+  art.src = 'img/plex-mark.png';
   const panel = h('div', 'login-panel', el);
   h('h1', 'login-title', panel).textContent = 'Sign in to Plex';
   const steps = h('ol', 'login-steps', panel);
@@ -27,6 +27,7 @@ export function LoginScreen({ onDone }) {
 
   let timer = 0;
   let alive = true;
+  let signedToken = null; // set once the PIN is claimed; OK then retries connecting
 
   async function start() {
     clearTimeout(timer);
@@ -43,11 +44,17 @@ export function LoginScreen({ onDone }) {
       const poll = async () => {
         if (!alive) return;
         if (Date.now() > expires) { start(); return; }
+        let token = null;
         try {
-          const token = await checkPin(pin.id);
-          if (token) { await finish(token); return; }
+          token = await checkPin(pin.id);
         } catch (e) {
           error('pin poll failed', e);
+        }
+        if (token) {
+          // The PIN is used up now: stop polling, and on failure say why.
+          signedToken = token;
+          finish(token).catch(failed);
+          return;
         }
         timer = setTimeout(poll, 2000);
       };
@@ -57,6 +64,11 @@ export function LoginScreen({ onDone }) {
       setText(status, 'Can\'t reach plex.tv. Retrying…');
       timer = setTimeout(start, 4000);
     }
+  }
+
+  function failed(e) {
+    error('sign-in failed', e);
+    setText(status, (e && e.message || 'Sign-in failed') + '. Press OK to try again.');
   }
 
   async function finish(token) {
@@ -86,7 +98,11 @@ export function LoginScreen({ onDone }) {
     name: 'login',
     onShow() { ambience.restore(); },
     onKey(action) {
-      if (action === 'enter') { start(); return true; }
+      if (action === 'enter') {
+        if (signedToken) finish(signedToken).catch(failed);
+        else start();
+        return true;
+      }
       return false;
     },
     destroy() {

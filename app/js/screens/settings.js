@@ -7,6 +7,9 @@ import { setHud, hudEnabled } from '../ui/hud.js';
 import * as router from '../router.js';
 import { ServerPicker } from './login.js';
 import { error } from '../util/log.js';
+import { use24h } from '../util/format.js';
+import * as store from '../util/store.js';
+import { accentName, nextAccent, accents, setAccent, accentIndex } from '../ui/theme.js';
 import { useAmbience, setLegacyGradients, legacyGradients } from '../ui/backdrop.js';
 
 export function SettingsScreen() {
@@ -15,7 +18,7 @@ export function SettingsScreen() {
   h('h1', 'settings-title', el).textContent = 'Settings';
   const list = h('div', 'settings-list', el);
   const foot = h('div', 'settings-foot', el);
-  foot.textContent = 'SamSUCKS ' + VERSION + (DEV ? ' (dev)' : '') + ' · ' + (session.server ? session.server.uri.replace(/X-Plex-Token=.*/, '') : '');
+  foot.textContent = 'Plex Fast ' + VERSION + (DEV ? ' (dev)' : '') + ' · ' + (session.server ? session.server.uri.replace(/X-Plex-Token=.*/, '') : '');
 
   let index = 0;
   let items = [];
@@ -25,14 +28,30 @@ export function SettingsScreen() {
     items = [
       { label: 'Server', value: session.server ? session.server.name : '—', run: switchServer },
       { label: 'Signed in as', value: session.user ? session.user.title : '—', run: doSignOut, action: 'Sign out' },
-      { label: 'Performance overlay', value: hudEnabled() ? 'On' : 'Off', run: () => { setHud(!hudEnabled()); build(); } },
-      // For before/after recordings: brings back the full-screen gradients that took ~2s per repaint.
-      { label: 'Demo: original slow renderer', value: legacyGradients() ? 'On' : 'Off', run: () => { setLegacyGradients(!legacyGradients()); build(); } },
+      // ◀▶ picks a swatch (live preview), OK cycles.
+      { label: 'Accent colour', value: accentName(), swatches: accents(), run: () => { nextAccent(); build(); },
+        adjust: dir => { setAccent(accentIndex() + dir); build(); } },
+      { label: 'Clock', value: use24h() ? '24-hour' : '12-hour', run: () => { store.set('clock24', !use24h()); build(); } },
     ];
+    if (DEV) {
+      items.push(
+        { label: 'Performance overlay', value: hudEnabled() ? 'On' : 'Off', run: () => { setHud(!hudEnabled()); build(); } },
+        // For before/after recordings: brings back the full-screen gradients that took ~2s per repaint.
+        { label: 'Demo: original slow renderer', value: legacyGradients() ? 'On' : 'Off', run: () => { setLegacyGradients(!legacyGradients()); build(); } },
+      );
+    }
     items.forEach(it => {
       it.el = h('div', 'setting', list);
       h('span', 'setting-label', it.el).textContent = it.label;
-      h('span', 'setting-value', it.el).textContent = it.value + (it.action ? '  ·  ' + it.action : '');
+      const value = h('span', 'setting-value', it.el);
+      h('span', '', value).textContent = it.value + (it.action ? '  ·  ' + it.action : '');
+      if (it.swatches) {
+        const row = h('span', 'swatches', value);
+        it.swatches.forEach(sw => {
+          const dot = h('i', 'swatch' + (sw.on ? ' on' : ''), row);
+          dot.style.background = sw.hex;
+        });
+      }
     });
     render();
   }
@@ -76,6 +95,10 @@ export function SettingsScreen() {
       if (action === 'up') { index = Math.max(0, index - 1); render(); return true; }
       if (action === 'down') { index = Math.min(items.length - 1, index + 1); render(); return true; }
       if (action === 'enter') { items[index].run(); return true; }
+      if ((action === 'left' || action === 'right') && items[index].adjust) {
+        items[index].adjust(action === 'left' ? -1 : 1);
+        return true;
+      }
       return false;
     },
   };

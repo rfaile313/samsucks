@@ -10,6 +10,7 @@ export const KINDS = {
   wide: { w: 400, h: 225 },
   grid: { w: 216, h: 324 },
   episode: { w: 384, h: 216 },
+  person: { w: 180, h: 180 },
 };
 
 export function createTile(kind, { caption = false } = {}) {
@@ -51,6 +52,7 @@ function titleFor(item, kind) {
 }
 
 function subFor(item, kind) {
+  if (item.sub != null) return item.sub; // e.g. a person's role, a credit's "role · year"
   if (item.type === 'episode') {
     return kind === 'episode' ? episodeLabel(item).replace(' · ', '') + '  ' + item.title
       : episodeLabel(item) + '  ' + item.title;

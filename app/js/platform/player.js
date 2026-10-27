@@ -1,5 +1,6 @@
 // Video backend: Samsung AVPlay (hardware decode, plays straight to the video
-// plane under the web layer) on the TV, <video> in a desktop browser.
+// plane under the web layer) on the TV, <video> in a desktop browser. The TV
+// also uses <video> (on Plex's HLS) for fractional speeds, which AVPlay ignores.
 //
 // listener: { onTime(ms), onBuffering(bool), onEnd(), onError(msg), onSubtitle(text, durationMs) }
 
@@ -12,12 +13,21 @@ function avplayBackend(container, listener) {
   let opened = false;
 
   const api = {
-    open(url, { uhd = false } = {}) {
+    // aspect: display aspect ratio for anamorphic files, whose pixel aspect
+    // AVPlay ignores; the picture is then fitted into a rect of that shape.
+    open(url, { uhd = false, aspect = 0 } = {}) {
       api.close();
       av.open(url);
       opened = true;
-      av.setDisplayRect(0, 0, 1920, 1080);
-      av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+      if (aspect) {
+        const w = aspect > 16 / 9 ? 1920 : Math.round(1080 * aspect);
+        const hh = aspect > 16 / 9 ? Math.round(1920 / aspect) : 1080;
+        av.setDisplayRect(Math.round((1920 - w) / 2), Math.round((1080 - hh) / 2), w, hh);
+        av.setDisplayMethod('PLAYER_DISPLAY_MODE_FULL_SCREEN');
+      } else {
+        av.setDisplayRect(0, 0, 1920, 1080);
+        av.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+      }
       if (uhd) {
         try { av.setStreamingProperty('SET_MODE_4K', 'TRUE'); } catch (e) { /* not a UHD panel */ }
       }
@@ -66,6 +76,9 @@ function avplayBackend(container, listener) {
         return true;
       } catch (e) { return false; }
     },
+    setRate() { return false; },
+    // Shifts embedded text subtitles; positive is later.
+    setSubtitleDelay(ms) { try { av.setSubtitlePosition(Math.round(ms)); } catch (e) {} },
     suspend() { try { av.suspend(); } catch (e) {} },
     restore() { try { av.restore(); } catch (e) {} },
     close() {
@@ -108,6 +121,8 @@ function videoBackend(container, listener) {
     tracks() { return { audio: [], text: [] }; },
     selectAudio() { return false; },
     selectText() { return false; },
+    setRate(rate) { v.playbackRate = rate; return true; },
+    setSubtitleDelay() {},
     suspend() {},
     restore() {},
     close() { v.removeAttribute('src'); v.load(); },
@@ -115,7 +130,7 @@ function videoBackend(container, listener) {
   };
 }
 
-export function createPlayer(container, listener) {
-  if (typeof webapis !== 'undefined' && webapis.avplay) return avplayBackend(container, listener);
+export function createPlayer(container, listener, { web = false } = {}) {
+  if (!web && typeof webapis !== 'undefined' && webapis.avplay) return avplayBackend(container, listener);
   return videoBackend(container, listener);
 }

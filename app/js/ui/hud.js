@@ -59,5 +59,6 @@ export function hudEnabled() {
 
 export function initHud(getScreenName) {
   screenName = getScreenName;
-  setHud(store.get('hud', DEV), false);
+  // Release builds have no toggle for it, so never show it there.
+  setHud(DEV && store.get('hud', true), false);
 }

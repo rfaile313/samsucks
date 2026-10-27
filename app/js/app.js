@@ -9,6 +9,7 @@ import { initHud } from './ui/hud.js';
 import { log, warn } from './util/log.js';
 import * as nav from './nav.js';
 import * as store from './util/store.js';
+import { applyAccent } from './ui/theme.js';
 
 function goHome() {
   router.reset(HomeScreen());
@@ -69,6 +70,7 @@ function start() {
 }
 
 export function boot() {
+  applyAccent();
   if (DEV) window.__ss = { router, session, nav };
   log('boot', VERSION, navigator.userAgent);
   registerKeys();

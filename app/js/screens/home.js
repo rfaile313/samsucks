@@ -1,14 +1,15 @@
 // Home: hero for the focused item, nav bar, and Plex's home hubs as rows.
 // The last hub payload is cached so a cold start paints instantly.
-import { h, setText, setTransform, toggleClass } from '../util/dom.js';
+import { h, setText, setTransform, toggleClass, fitText } from '../util/dom.js';
 import { Row } from '../ui/row.js';
 import { useAmbience, HeroArt } from '../ui/backdrop.js';
 import { session } from '../session.js';
-import { metaLine } from '../util/format.js';
+import { metaLine, timeOfDay } from '../util/format.js';
+import { renderRatings } from '../ui/ratings.js';
 import { isFast } from '../input.js';
 import * as store from '../util/store.js';
 import * as icons from '../ui/icons.js';
-import { openItem, playItem, openLibrary, openSearch, openSettings } from '../nav.js';
+import { openItem, playItem, openLibrary, openSearch, openSettings, shuffle } from '../nav.js';
 import { error, log } from '../util/log.js';
 
 const ROWS_TOP = 600;
@@ -19,6 +20,7 @@ function slimHub(hub) {
   const keep = ['ratingKey', 'key', 'type', 'title', 'grandparentTitle', 'parentTitle', 'year', 'thumb', 'art',
     'grandparentThumb', 'grandparentArt', 'parentThumb', 'index', 'parentIndex', 'duration', 'viewOffset',
     'viewCount', 'leafCount', 'viewedLeafCount', 'childCount', 'contentRating', 'audienceRating', 'summary',
+    'rating', 'ratingImage', 'audienceRatingImage',
     'originallyAvailableAt', 'UltraBlurColors', 'grandparentRatingKey', 'parentRatingKey', 'Image'];
   return {
     hubIdentifier: hub.hubIdentifier, title: hub.title, type: hub.type,
@@ -47,20 +49,22 @@ export function HomeScreen() {
 
   const top = h('header', 'topbar', el);
   const brand = h('div', 'brand', top);
-  h('img', 'brand-mark', brand).src = 'img/mascot.png';
   const brandText = h('div', 'brand-text', brand);
-  h('img', 'brand-wordmark', brandText).src = 'img/wordmark.png';
-  h('div', 'brand-by', brandText).textContent = 'by rfaile313';
+  h('img', 'brand-wordmark', brandText).src = 'img/plex-logo.png';
   // The nav is a clip with a sliding track, so any number of libraries fits.
   const navEl = h('nav', 'nav', top);
   const navTrack = h('div', 'nav-track', navEl);
-  const who = h('div', 'topbar-who', top);
-  setText(who, session.server ? session.server.name : '');
+  const clockEl = h('div', 'topbar-clock', top);
+  const tick = () => setText(clockEl, timeOfDay(new Date()));
+  tick();
+  const clockTimer = setInterval(tick, 5000);
 
   const info = h('div', 'hero-info', el);
   const heroLogo = h('img', 'hero-logo', info);
   const heroTitle = h('h1', 'hero-title', info);
-  const heroMeta = h('div', 'hero-meta', info);
+  const heroMetaRow = h('div', 'hero-meta', info);
+  const heroMeta = h('span', '', heroMetaRow);
+  const heroRatings = h('span', 'ratings', heroMetaRow);
   const heroSummary = h('p', 'hero-summary', info);
 
   const rowsClip = h('div', 'home-rows', el);
@@ -84,6 +88,7 @@ export function HomeScreen() {
     navTrack.innerHTML = '';
     navItems = [{ label: 'Home', id: 'home' }]
       .concat(sections.map(s => ({ label: s.title, id: 'section', section: s })))
+      .concat(sections.some(s => s.type === 'movie') ? [{ label: 'Shuffle', id: 'shuffle', icon: icons.shuffle }] : [])
       .concat([{ label: 'Search', id: 'search', icon: icons.search }, { label: 'Settings', id: 'settings', icon: icons.gear }]);
     navIndex = Math.min(navIndex, navItems.length - 1);
     navItems.forEach((n, i) => {
@@ -134,8 +139,10 @@ export function HomeScreen() {
       heroLogo.style.display = 'none';
       heroTitle.style.display = '';
       setText(heroTitle, item.type === 'episode' ? item.grandparentTitle : item.title);
+      fitText(heroTitle, 64, 40);
     }
-    setText(heroMeta, (item.type === 'episode' ? item.title + '  ·  ' : '') + metaLine(item));
+    setText(heroMeta, (item.type === 'episode' ? item.title + '  ·  ' : '') + metaLine(item, { score: false }));
+    renderRatings(heroRatings, item);
     setText(heroSummary, item.summary || '');
     ambience.set(item.UltraBlurColors);
     clearTimeout(artTimer);
@@ -224,6 +231,7 @@ export function HomeScreen() {
 
   function activateNav(n) {
     if (n.id === 'section') openLibrary(n.section);
+    else if (n.id === 'shuffle') shuffle({ sections: navItems.filter(x => x.section && x.section.type === 'movie').map(x => x.section), unwatched: true });
     else if (n.id === 'search') openSearch();
     else if (n.id === 'settings') openSettings();
   }
@@ -231,6 +239,7 @@ export function HomeScreen() {
   return {
     el,
     name: 'home',
+    destroy() { clearInterval(clockTimer); },
     onShow() {
       ambience.restore();
       renderNav(); // widths can't be measured while the screen was hidden

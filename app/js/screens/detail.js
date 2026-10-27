@@ -1,13 +1,15 @@
 // Detail page for a movie, show, season (opens its show) or episode.
-import { h, setText, setTransform, toggleClass } from '../util/dom.js';
+import { h, setText, setTransform, toggleClass, fitText } from '../util/dom.js';
 import { useAmbience, HeroArt } from '../ui/backdrop.js';
 import { Row } from '../ui/row.js';
 import { session } from '../session.js';
 import { metaLine, clock, episodeLabel } from '../util/format.js';
 import { clearLogo } from './home.js';
+import { renderRatings } from '../ui/ratings.js';
 import * as icons from '../ui/icons.js';
 import * as router from '../router.js';
-import { playItem } from '../nav.js';
+import { playItem, openPerson } from '../nav.js';
+import { warm as warmDiscover } from '../plex/discover.js';
 import { error } from '../util/log.js';
 
 const SHIFT = 400; // how far the body slides up to reveal seasons/episodes
@@ -20,12 +22,21 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
   const logo = h('img', 'detail-logo', body);
   const title = h('h1', 'detail-title', body);
   const sub = h('div', 'detail-sub', body);
-  const meta = h('div', 'detail-meta', body);
+  const metaRow = h('div', 'detail-meta', body);
+  const meta = h('span', '', metaRow);
+  const ratingsEl = h('span', 'ratings', metaRow);
   const tags = h('div', 'detail-tags', body);
   const summary = h('p', 'detail-summary', body);
   const buttonsEl = h('div', 'detail-buttons', body);
   const seasonsEl = h('div', 'detail-seasons', body);
   const episodesWrap = h('div', 'detail-episodes', body);
+  const castWrap = h('div', 'detail-cast', body);
+  // Full synopsis when the one on the page is clipped.
+  const more = h('div', 'detail-more hidden', el);
+  const moreBox = h('div', 'detail-more-box', more);
+  const moreTitle = h('h2', 'detail-more-title', moreBox);
+  const moreText = h('div', 'detail-more-text', moreBox);
+  h('div', 'detail-more-hint', moreBox).textContent = '▲▼ Scroll · OK or Back to close';
 
   let item = initial;
   let buttons = [];
@@ -33,6 +44,7 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
   let seasons = [];
   let seasonIndex = 0;
   let episodes = null;
+  let cast = null;
   let zone = 'buttons';
   let alive = true;
   let shown = false;
@@ -51,9 +63,11 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
       logo.style.display = 'none';
       title.style.display = '';
       setText(title, showTitle);
+      fitText(title, 70, 42);
     }
     setText(sub, item.type === 'episode' ? episodeLabel(item) + '   ' + item.title : (item.tagline || ''));
-    setText(meta, metaLine(item));
+    setText(meta, metaLine(item, { score: false }));
+    renderRatings(ratingsEl, item);
     const genres = (item.Genre || []).slice(0, 3).map(g => g.tag);
     const people = (item.Director || []).slice(0, 1).map(d => 'Directed by ' + d.tag)
       .concat((item.Role || []).length ? ['Starring ' + item.Role.slice(0, 3).map(r => r.tag).join(', ')] : []);
@@ -92,6 +106,9 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
         add(icons.play, isShowLike() ? 'Play ' + prefix : 'Play', () => playItem(t, { offset: 0 }));
       }
     }
+    if (summary.scrollHeight > summary.clientHeight + 2) add(icons.info, 'More', openMore);
+    const trailer = item.type === 'movie' && item.Extras && (item.Extras.Metadata || []).find(x => x.subtype === 'trailer');
+    if (trailer) add(icons.film, 'Trailer', () => playItem(trailer, { offset: 0 }));
     const watched = isShowLike() ? item.viewedLeafCount >= item.leafCount : !!item.viewCount;
     add(watched ? icons.check : icons.uncheck, watched ? 'Watched' : 'Mark watched', toggleWatched);
     if (item.type === 'episode' && item.grandparentRatingKey) {
@@ -114,8 +131,43 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
       toggleClass(s.el, 'current', i === seasonIndex);
     });
     if (episodes) episodes.row.setActive(zone === 'episodes');
-    setTransform(body, zone === 'buttons' ? 'translateY(0)' : 'translateY(' + (-SHIFT) + 'px)');
+    if (cast) cast.setActive(zone === 'cast');
+    setTransform(body, 'translateY(' + (-shiftFor(zone)) + 'px)');
     toggleClass(el, 'shifted', zone !== 'buttons');
+  }
+
+  function openMore() {
+    setText(moreTitle, item.type === 'episode' ? item.grandparentTitle + '  ·  ' + episodeLabel(item) + '  ' + item.title : item.title);
+    setText(moreText, item.summary || '');
+    moreText.scrollTop = 0;
+    more.classList.remove('hidden');
+  }
+
+  // Seasons/episodes slide up by SHIFT; the cast row further, by however far
+  // below the first of those it sits.
+  function shiftFor(z) {
+    if (z === 'buttons') return 0;
+    if (z !== 'cast') return SHIFT;
+    const first = [seasonsEl, episodesWrap, castWrap].find(e => e.offsetParent);
+    return SHIFT + castWrap.offsetTop - first.offsetTop;
+  }
+
+  // Cast first, then directors and writers, like the official app.
+  function renderCast() {
+    const tag = (list, role) => (list || []).map(p => ({
+      type: 'person', title: p.tag, sub: role || p.role || '', thumb: p.thumb, tagKey: p.tagKey,
+      filter: p.filter, ratingKey: 'person:' + p.id + ':' + (role || 'actor'),
+    }));
+    const people = tag(item.Role).concat(tag(item.Director, 'Director'), tag(item.Writer, 'Writer'));
+    if (!people.length) return;
+    warmDiscover();
+    if (!cast) {
+      cast = new Row({ title: 'Cast & Crew', kind: 'person', caption: true, items: people, onSelect: openPerson });
+      castWrap.appendChild(cast.el);
+      castWrap.style.height = cast.height + 'px'; // rows are absolutely positioned
+    } else {
+      cast.setItems(people);
+    }
   }
 
   async function loadEpisodes(season) {
@@ -143,10 +195,11 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
       let key = item.ratingKey;
       let preferSeason = null;
       if (item.type === 'season') { preferSeason = item.ratingKey; key = item.parentRatingKey; }
-      const full = await session.server.metadata(key);
+      const full = await session.server.metadata(key, { extras: true });
       if (!alive || !full) return;
       item = full;
       renderHeader();
+      renderCast();
       if (isShowLike()) {
         seasons = (await session.server.children(item.ratingKey)).filter(s => s.type === 'season');
         if (!alive) return;
@@ -189,6 +242,7 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
     const order = ['buttons'];
     if (seasons.length > 1) order.push('seasons');
     if (episodes) order.push('episodes');
+    if (cast) order.push('cast');
     const i = order.indexOf(zone) + dir;
     if (i < 0 || i >= order.length) return;
     zone = order[i];
@@ -200,6 +254,7 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
     name: 'detail',
     onShow() {
       ambience.restore();
+      if (title.style.display !== 'none') fitText(title, 70, 42);
       // Back from the player: refresh resume points and watched state.
       if (shown) {
         session.server.invalidate();
@@ -208,6 +263,11 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
       shown = true;
     },
     onKey(action) {
+      if (!more.classList.contains('hidden')) {
+        if (action === 'up' || action === 'down') moreText.scrollTop += action === 'down' ? 156 : -156;
+        if (action === 'back' || action === 'enter') more.classList.add('hidden');
+        return true;
+      }
       if (action === 'up') { moveZone(-1); return true; }
       if (action === 'down') { moveZone(1); return true; }
       if (action === 'play' || action === 'playpause') {
@@ -235,6 +295,10 @@ export function DetailScreen(initial, { autoplay = false } = {}) {
         if (action === 'right') { episodes.row.move(1); return true; }
         if (action === 'enter') { episodes.row.select(); return true; }
         if (action === 'info') { router.push(DetailScreen(episodes.row.current())); return true; }
+      } else if (zone === 'cast') {
+        if (action === 'left') { cast.move(-1); return true; }
+        if (action === 'right') { cast.move(1); return true; }
+        if (action === 'enter') { cast.select(); return true; }
       }
       if (action === 'back' && zone !== 'buttons') { zone = 'buttons'; renderFocus(); return true; }
       return false;

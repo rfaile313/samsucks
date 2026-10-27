@@ -57,9 +57,9 @@ export class Server {
     return (mc.Hub || []).filter(h => h.size > 0 && SUPPORTED_HUB_TYPES[h.type] && h.Metadata);
   }
 
-  async items(sectionId, start, size, { sort = 'titleSort', type } = {}) {
+  async items(sectionId, start, size, { sort = 'titleSort', type, unwatched = false } = {}) {
     const mc = await this.get('/library/sections/' + sectionId + '/all', {
-      sort, type,
+      sort, type, unwatched: unwatched ? 1 : undefined,
       'X-Plex-Container-Start': start,
       'X-Plex-Container-Size': size,
       excludeFields: 'summary,tagline',
@@ -67,8 +67,29 @@ export class Server {
     return { total: mc.totalSize != null ? mc.totalSize : mc.size, items: mc.Metadata || [] };
   }
 
-  async metadata(ratingKey) {
-    const mc = await this.get('/library/metadata/' + ratingKey, { includeOnDeck: 1, includeExtras: 0 });
+  async collections(sectionId, start, size) {
+    return this.page('/library/sections/' + sectionId + '/collections', start, size);
+  }
+
+  // A collection's items in the collection's own order (the server ignores
+  // sort and filters here, smart collections included).
+  async collectionItems(ratingKey, start, size) {
+    return this.page('/library/collections/' + ratingKey + '/children', start, size);
+  }
+
+  async page(path, start, size) {
+    const mc = await this.get(path, {
+      'X-Plex-Container-Start': start,
+      'X-Plex-Container-Size': size,
+      excludeFields: 'summary,tagline',
+    });
+    return { total: mc.totalSize != null ? mc.totalSize : mc.size, items: mc.Metadata || [] };
+  }
+
+  async metadata(ratingKey, { markers = false, extras = false } = {}) {
+    const mc = await this.get('/library/metadata/' + ratingKey, {
+      includeOnDeck: 1, includeExtras: extras ? 1 : 0, includeMarkers: markers ? 1 : undefined,
+    });
     const item = (mc.Metadata || [])[0];
     if (item && mc.OnDeck && mc.OnDeck.Metadata) item.onDeck = mc.OnDeck.Metadata[0];
     return item;
@@ -82,6 +103,24 @@ export class Server {
   async search(q) {
     const mc = await this.get('/hubs/search', { query: q, limit: 30, includeCollections: 0 });
     return (mc.Hub || []).filter(h => h.size > 0 && SUPPORTED_HUB_TYPES[h.type] && h.Metadata);
+  }
+
+  // Subtitles the server can fetch from its providers (OpenSubtitles).
+  async searchSubtitles(ratingKey, language) {
+    const mc = await this.get('/library/metadata/' + ratingKey + '/subtitles', { language, hearingImpaired: 0, forced: 0 });
+    return mc.Stream || [];
+  }
+
+  // Downloads a search result and attaches it to the item as an external stream.
+  downloadSubtitle(ratingKey, stream) {
+    return request(this.uri + '/library/metadata/' + ratingKey + '/subtitles', {
+      method: 'PUT', token: this.token, timeout: 30000,
+      params: {
+        key: stream.key, codec: stream.codec, language: stream.languageCode,
+        hearingImpaired: stream.hearingImpaired ? 1 : 0, forced: stream.forced ? 1 : 0,
+        providerTitle: stream.providerTitle,
+      },
+    });
   }
 
   timeline(params) {

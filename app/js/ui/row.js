@@ -19,7 +19,7 @@ export class Row {
     this.onFocus = onFocus;
     this.onSelect = onSelect;
 
-    this.el = h('section', 'row');
+    this.el = h('section', 'row row-' + kind);
     this.titleEl = h('h2', 'row-title', this.el);
     setText(this.titleEl, title || '');
     const clip = h('div', 'row-clip', this.el);
