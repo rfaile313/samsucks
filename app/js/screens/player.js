@@ -39,6 +39,15 @@ function isSidecarText(sub) {
   return !!sub && !!sub.key && !!TEXT_SUBS[sub.codec];
 }
 
+// An external text file matching an embedded text subtitle (same language, same SDH/forced
+// flags), e.g. one extracted next to the MKV. Plex can't hand embedded subs out on their own,
+// so over HLS the only other way to show them is burning in, which re-encodes the video.
+function sidecarTwin(part, sub) {
+  const same = s => isSidecarText(s) && s.languageCode === sub.languageCode && !!s.forced === !!sub.forced;
+  const candidates = streamsOf(part, 3).filter(same);
+  return candidates.find(s => !!s.hearingImpaired === !!sub.hearingImpaired) || candidates[0] || null;
+}
+
 function subtitleLabel(s) {
   const title = s.displayTitle && s.displayTitle !== 'Unknown' ? s.displayTitle : (s.language || '');
   const kind = (s.codec || '').toUpperCase() + (s.key ? ' · external' : '');
@@ -205,16 +214,31 @@ export function PlayerScreen(initial, { offset = null } = {}) {
       url = server.url(part.key);
     } else {
       base = atMs;
+      if (isEmbeddedText(subStream)) {
+        const twin = sidecarTwin(part, subStream);
+        if (twin) {
+          log('using external twin of embedded subtitle:', twin.displayTitle);
+          subStream = twin;
+        }
+      }
       // Burn in only what we can't draw ourselves (image subs, embedded text).
       const burn = subStream && !isSidecarText(subStream);
-      url = server.transcodeUrl(item, {
+      const build = (withSubs) => server.transcodeUrl(item, {
         session: playSession, offsetMs: atMs,
         audioStreamID: audioStream && audioStream.id,
-        subtitleStreamID: burn ? subStream.id : undefined,
+        subtitleStreamID: withSubs ? subStream.id : undefined,
       });
       // PMS 1.42+ rejects start.m3u8 unless a decision was made for the session first.
-      const decision = await request(url.replace('/start.m3u8', '/decision'));
-      const mc = decision.MediaContainer || {};
+      const decide = async () => (await request(url.replace('/start.m3u8', '/decision'))).MediaContainer || {};
+      url = build(burn);
+      let mc = await decide();
+      // Burning subtitles means re-encoding the video. A server that can only remux refuses
+      // that, so play without the subtitle rather than not at all.
+      if (burn && mc.generalDecisionCode >= 2000) {
+        warn('server cannot burn in subtitles, playing without them:', mc.transcodeDecisionText);
+        url = build(false);
+        mc = await decide();
+      }
       if (mc.generalDecisionCode && mc.generalDecisionCode >= 2000) throw new Error(mc.generalDecisionText || 'Server refused to convert this file');
     }
     log('play', mode, item.title, media.container + '/' + media.videoCodec + '/' + (audioStream && audioStream.codec), 'at', clock(atMs));

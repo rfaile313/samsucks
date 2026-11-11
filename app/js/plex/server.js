@@ -102,9 +102,13 @@ export class Server {
 
   // HLS URL for content the TV can't direct play. Video is passed through when
   // possible; only the audio (e.g. DTS) or container gets converted.
-  transcodeUrl(item, { session, offsetMs = 0, mediaIndex = 0, maxBitrate = 40000, resolution = '3840x2160', audioStreamID, subtitleStreamID } = {}) {
+  // maxBitrate: a cap below the file's peak makes PMS re-encode the video to fit, which a
+  // remux-only server refuses (4K remuxes peak well above 100 Mbps), so on the LAN keep it out of the way.
+  transcodeUrl(item, { session, offsetMs = 0, mediaIndex = 0, maxBitrate = 1000000, resolution = '3840x2160', audioStreamID, subtitleStreamID } = {}) {
     const extra = [
-      'add-transcode-target(type=videoProfile&context=streaming&protocol=hls&container=mpegts&videoCodec=h264,hevc&audioCodec=aac,ac3,eac3)',
+      // The generic profile already has an HLS target, so add-transcode-target is rejected
+      // ("video transcode target already exists") and HEVC could never be remuxed. Append instead.
+      'append-transcode-target-codec(type=videoProfile&context=streaming&protocol=hls&videoCodec=hevc)',
       'add-direct-play-profile(type=videoProfile&container=mp4,mkv&videoCodec=h264,hevc&audioCodec=aac,ac3,eac3)',
     ].join('+');
     return withQuery(this.uri + '/video/:/transcode/universal/start.m3u8', Object.assign({}, identity(), {

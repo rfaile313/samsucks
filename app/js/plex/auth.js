@@ -1,5 +1,5 @@
 // plex.tv sign-in (PIN / plex.tv/link) and server discovery.
-import { request, clientId, PRODUCT, query } from './client.js';
+import { request, clientId, query } from './client.js';
 import { log, warn } from '../util/log.js';
 
 const TV = 'https://plex.tv/api/v2';
@@ -15,11 +15,12 @@ export async function checkPin(id) {
 }
 
 // Link that signs this device in from a phone, encoded in the login QR code.
+// No context[device][product]: app.plex.tv sends it as X-Plex-Product on PUT /pins/link,
+// and plex.tv answers 403 ("We were unable to complete this request") for anything but Plex Web.
 export function authAppUrl(code) {
   return 'https://app.plex.tv/auth#?' + query({
     clientID: clientId,
     code,
-    'context[device][product]': PRODUCT,
   });
 }
 
