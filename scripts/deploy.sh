@@ -4,20 +4,26 @@
 #   ./scripts/deploy.sh --dev         dev build: perf overlay, logs + remote control via tools/devserver.mjs
 #   ./scripts/deploy.sh --build-only  just produce build/app (no TV needed)
 #   ./scripts/deploy.sh --no-run      install but don't launch
+#   ./scripts/deploy.sh --target=tizen4  build for Tizen 4.0 TVs (2018, Chromium 56); combine with any flag above
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f "$ROOT/.env" ] || { echo "No .env yet. Run ./scripts/setup.sh first." >&2; exit 1; }
 set -a; source "$ROOT/.env"; set +a
 
-DEV=0; RUN=1; INSTALL=1
+DEV=0; RUN=1; INSTALL=1; BUILD_TARGET=""
 for arg in "$@"; do
   case "$arg" in
     --dev) DEV=1 ;;
     --no-run) RUN=0 ;;
     --build-only) INSTALL=0 ;;
+    --target=*) BUILD_TARGET="${arg#--target=}" ;;
   esac
 done
+case "$BUILD_TARGET" in
+  "" | tizen4) ;;
+  *) echo "Unknown target: $BUILD_TARGET (supported: tizen4)" >&2; exit 1 ;;
+esac
 
 # --- build: the app is plain JS modules, so building is a copy ---------------
 OUT="$ROOT/build/app"
@@ -33,14 +39,26 @@ export const DEV_PLEX_URL = '$PLEX_URL';
 export const VERSION = '$VERSION';
 EOF
 else
-  rm -rf "$OUT/js/dev"
+  # The tizen4 bundle needs js/dev: Chromium 56 cannot parse the import() in app.js
+  # unless esbuild resolves it. It never runs, because app.js loads it only when DEV is true.
+  [ "$BUILD_TARGET" = tizen4 ] || rm -rf "$OUT/js/dev"
   sed -i.bak "s/^export const VERSION = .*/export const VERSION = '$VERSION';/" "$OUT/js/config.js" && rm "$OUT/js/config.js.bak"
 fi
-# Preload every module up front so the TV fetches them in parallel instead of
-# discovering the import graph one level at a time.
-PRELOADS=$(cd "$OUT" && find js -name '*.js' | sort | sed 's|.*|<link rel="modulepreload" href="&">|' | tr '\n' ' ')
-sed -i.bak "s|</head>|$PRELOADS</head>|" "$OUT/index.html" && rm "$OUT/index.html.bak"
-echo "built $([ "$DEV" = 1 ] && echo dev || echo release) $VERSION → build/app"
+if [ "$BUILD_TARGET" = tizen4 ]; then
+  # Tizen 4.0 TVs run Chromium 56, which has no ES modules: bundle to one classic
+  # script, lower newer syntax, and relax the minimum platform version.
+  command -v esbuild >/dev/null || { echo "esbuild not found. Install it: brew install esbuild, or npm install -g esbuild" >&2; exit 1; }
+  esbuild "$OUT/js/main.js" --bundle --format=iife --target=chrome56 --log-level=warning --outfile="$OUT/bundle.js"
+  rm -rf "$OUT/js" && mkdir "$OUT/js" && mv "$OUT/bundle.js" "$OUT/js/main.js"
+  sed -i.bak 's| type="module"||' "$OUT/index.html" && rm "$OUT/index.html.bak"
+  sed -i.bak 's/required_version="[^"]*"/required_version="4.0"/' "$OUT/config.xml" && rm "$OUT/config.xml.bak"
+else
+  # Preload every module up front so the TV fetches them in parallel instead of
+  # discovering the import graph one level at a time.
+  PRELOADS=$(cd "$OUT" && find js -name '*.js' | sort | sed 's|.*|<link rel="modulepreload" href="&">|' | tr '\n' ' ')
+  sed -i.bak "s|</head>|$PRELOADS</head>|" "$OUT/index.html" && rm "$OUT/index.html.bak"
+fi
+echo "built $([ "$DEV" = 1 ] && echo dev || echo release)${BUILD_TARGET:+ ($BUILD_TARGET)} $VERSION → build/app"
 [ "$INSTALL" = 1 ] || exit 0
 
 # --- package, sign, install, launch -------------------------------------------
