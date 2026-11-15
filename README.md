@@ -165,6 +165,9 @@ use a server that allows unauthenticated local-network access.
 
 The UI also runs in desktop Chrome: `./scripts/deploy.sh --build-only`, then serve
 `build/app/` with any static server. It uses a `<video>` element instead of AVPlay there.
+
+With [Nix](https://nixos.org), `nix develop -c ./scripts/deploy.sh` runs the scripts with node
+and esbuild on PATH, from `flake.nix`.
 </details>
 
 <details>
