@@ -38,7 +38,7 @@ SamSUCKS is a from-scratch Plex client for Samsung's Tizen TVs, built for speed:
 ## Install
 
 You need:
-- a Samsung smart TV (tested on a 2022 Q60B; 2020 or newer should work),
+- a Samsung smart TV (tested on a 2022 Q60B and a 2020 TU8000; 2020 or newer should work),
 - a Mac or Linux computer on the same network as the TV,
 - a Plex Media Server.
 
@@ -55,8 +55,8 @@ cd samsucks
 ./scripts/setup.sh
 ```
 
-This installs Samsung's command-line tools (about 270 MB), finds your TV on the
-network, and creates a signing certificate. If Developer Mode isn't turned on yet,
+This installs Samsung's command-line tools (about 270 MB) and esbuild, finds your TV
+on the network, and creates a signing certificate. If Developer Mode isn't turned on yet,
 it stops and tells you exactly what to do, including your computer's IP address.
 The steps are also below. Run it again afterwards, and it picks up where it left off.
 
@@ -180,9 +180,13 @@ scripts/        setup.sh (one-time) and deploy.sh (build + install)
 tools/          dev server, TV eval, network remote
 ```
 
-There's no bundler. The TV's browser (Chromium 69+ on Tizen 5.5+) runs ES modules
-natively, and `deploy.sh` adds `<link rel="modulepreload">` tags so every module loads
-in parallel (about 0.9 s cold start, versus 0.8 s for a minified bundle).
+The code is plain ES modules. `deploy.sh` bundles them into one classic script with
+[esbuild](https://esbuild.github.io/), a single binary that `setup.sh` downloads (no npm).
+That is required on 2020 TVs: Tizen 5.5 runs the app from a `file://` origin, and its
+Chromium 69 refuses to load ES modules from there. Without esbuild, `deploy.sh` ships
+the modules as they are, with `<link rel="modulepreload">` tags so they load in parallel
+(about 0.9 s cold start on Tizen 6.5, versus 0.8 s bundled), and refuses to install
+that on a Tizen 5.5 TV.
 </details>
 
 <details>

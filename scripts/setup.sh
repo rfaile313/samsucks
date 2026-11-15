@@ -53,6 +53,27 @@ if [ -n "$MISSING" ]; then
 fi
 ok "Samsung TV extensions"
 
+# esbuild bundles the app into one classic script. 2020 TVs (Tizen 5.5) need that: their
+# browser refuses to load ES modules from the app's file:// origin. A single static binary.
+ESBUILD_VERSION=0.27.2
+if [ -x "$ROOT/build/esbuild" ] || command -v esbuild >/dev/null 2>&1; then
+  ok "esbuild"
+else
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) EB=darwin-arm64 ;; Darwin-x86_64) EB=darwin-x64 ;;
+    Linux-x86_64) EB=linux-x64 ;; Linux-aarch64) EB=linux-arm64 ;;
+    *) EB="" ;;
+  esac
+  if [ -n "$EB" ]; then
+    mkdir -p "$ROOT/build"
+    curl -fsSL "https://registry.npmjs.org/@esbuild/$EB/-/$EB-$ESBUILD_VERSION.tgz" | tar -xzf - -C "$ROOT/build" --strip-components=2 package/bin/esbuild \
+      || fail "Couldn't download esbuild. Install it some other way and put it on your PATH."
+    ok "esbuild $ESBUILD_VERSION (build/esbuild)"
+  else
+    echo "  no esbuild build for this platform; 2020 TVs need it on your PATH"
+  fi
+fi
+
 # --- 2. Find the TV -------------------------------------------------------------
 bold "2/4  Finding your TV"
 if [ "$(uname -s)" = Darwin ]; then
