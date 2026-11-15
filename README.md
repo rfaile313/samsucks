@@ -40,6 +40,7 @@ SamSUCKS is a from-scratch Plex client for Samsung's Tizen TVs, built for speed:
 You need:
 - a Samsung smart TV (tested on a 2022 Q60B; 2020 or newer should work),
 - a Mac or Linux computer on the same network as the TV,
+  (an Apple Silicon Mac also needs [Rosetta 2](https://support.apple.com/en-us/102527): `softwareupdate --install-rosetta --agree-to-license`),
 - a Plex Media Server.
 
 **1. Download SamSUCKS**
@@ -94,6 +95,7 @@ choose **Add to Home**.
 | Problem | Fix |
 | --- | --- |
 | Typing 12345 does nothing | Make sure you're on the **Apps** screen. Use the on-screen keypad (**123** button) if your remote has no number keys, and type quickly. |
+| Setup says it needs Rosetta 2 | Samsung only ships Intel tools for macOS. Run `softwareupdate --install-rosetta --agree-to-license`, then `./scripts/setup.sh` again. |
 | Setup says "No Samsung TV found" | Turn the TV on and make sure it's on the same network (Wi-Fi or Ethernet) as your computer. |
 | Setup says Developer Mode points at another IP | Re-enter your computer's IP in the Developer Mode popup, then restart the TV. |
 | "Can't reach the TV" when deploying | Restart the TV, then run `./scripts/setup.sh` again. Your computer's IP may have changed. |

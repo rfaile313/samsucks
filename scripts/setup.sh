@@ -25,11 +25,20 @@ case "$(uname -s)" in
   Linux) INSTALLER="web-cli_Tizen_Studio_${TIZEN_VERSION}_ubuntu-64.bin" ;;
   *) fail "Only macOS and Linux are supported (on Windows, use WSL)." ;;
 esac
+# Samsung only ships Intel binaries for macOS; Apple Silicon runs them through Rosetta 2.
+if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] && ! /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+  fail "This Apple Silicon Mac needs Rosetta 2 to run Samsung's tools. Install it with
+
+      softwareupdate --install-rosetta --agree-to-license
+
+  then run ./scripts/setup.sh again."
+fi
 [ -f "$ENV" ] || cp "$ROOT/.env.example" "$ENV"
 TIZEN_STUDIO="$(get_env TIZEN_STUDIO)"; TIZEN_STUDIO="${TIZEN_STUDIO/\$HOME/$HOME}"; TIZEN_STUDIO="${TIZEN_STUDIO:-$HOME/tizen-studio}"
 TIZEN="$TIZEN_STUDIO/tools/ide/bin/tizen"
 SDB="$TIZEN_STUDIO/tools/sdb"
 PM="$TIZEN_STUDIO/package-manager/package-manager-cli.bin"
+LOG="$ROOT/build/setup.log"; mkdir -p "$ROOT/build"
 
 if [ -x "$TIZEN" ]; then
   ok "already installed in $TIZEN_STUDIO"
@@ -38,18 +47,24 @@ else
   TMP="$(mktemp -d)"
   curl -fL --progress-bar -o "$TMP/$INSTALLER" "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_VERSION}/$INSTALLER"
   chmod +x "$TMP/$INSTALLER"
-  "$TMP/$INSTALLER" --accept-license "$TIZEN_STUDIO" >/dev/null
+  "$TMP/$INSTALLER" --accept-license "$TIZEN_STUDIO" > "$LOG" 2>&1 || fail "The installer failed; see $LOG"
   rm -rf "$TMP"
+  [ -x "$TIZEN" ] || fail "The installer finished but $TIZEN is missing. See $LOG and ~/.package-manager/install-log"
   ok "installed in $TIZEN_STUDIO"
 fi
 
 PACKAGES="cert-add-on TV-SAMSUNG-Public-WebAppDevelopment TV-SAMSUNG-Extension-Tools Certificate-Manager"
-INSTALLED=$("$PM" show-pkgs 2>/dev/null | awk '$1 == "i" { print $2 }')
+INSTALLED=$("$PM" show-pkgs 2>&1) || fail "Samsung's package manager doesn't run:
+$INSTALLED"
+INSTALLED=$(awk '$1 == "i" { print $2 }' <<<"$INSTALLED")
 MISSING=""
 for p in $PACKAGES; do echo "$INSTALLED" | grep -qx "$p" || MISSING="$MISSING $p"; done
 if [ -n "$MISSING" ]; then
   echo "  Installing Samsung TV extensions (a few minutes)…"
-  "$PM" install --accept-license $MISSING >/dev/null
+  # The package manager updates itself first and sometimes aborts right after; a second run finishes the job.
+  "$PM" install --accept-license $MISSING > "$LOG" 2>&1 \
+    || "$PM" install --accept-license $MISSING > "$LOG" 2>&1 \
+    || fail "Installing$MISSING failed; see $LOG"
 fi
 ok "Samsung TV extensions"
 
@@ -120,17 +135,26 @@ ok "Developer Mode is on and points at this computer"
 bold "3/4  Signing certificate"
 PROFILE="$(get_env TIZEN_SIGN_PROFILE)"; PROFILE="${PROFILE:-samsucks}"
 set_env TIZEN_SIGN_PROFILE "$PROFILE"
-if "$TIZEN" security-profiles list 2>/dev/null | grep -q "^$PROFILE "; then
+# Certificates and profiles live in Tizen's data directory: usually ~/tizen-studio-data,
+# but the installer picks ~/tizen-studio-data.1 if that already existed.
+DATA="$(sed -n 's/^TIZEN_SDK_DATA_PATH=//p' "$TIZEN_STUDIO/sdk.info")"; DATA="${DATA:-$HOME/tizen-studio-data}"
+AUTHOR="$DATA/keystore/author/$PROFILE.p12"
+PROFILES="$("$TIZEN" security-profiles list 2>/dev/null || true)"
+if grep -q "^$PROFILE " <<<"$PROFILES"; then
   ok "profile '$PROFILE' already exists"
 else
   PW="$(get_env TIZEN_CERT_PASSWORD)"
-  [ -n "$PW" ] || PW=$(LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 24)
+  [ -n "$PW" ] || PW=$(openssl rand -hex 12)
   set_env TIZEN_CERT_PASSWORD "$PW"
-  "$TIZEN" certificate -a "$PROFILE" -p "$PW" -f "$PROFILE" >/dev/null
-  "$TIZEN" security-profiles add -n "$PROFILE" -a "$HOME/tizen-studio-data/keystore/author/$PROFILE.p12" -p "$PW" >/dev/null
+  if [ -f "$AUTHOR" ]; then
+    ok "author certificate already exists"
+  else
+    "$TIZEN" certificate -a "$PROFILE" -p "$PW" -f "$PROFILE" > "$LOG" 2>&1 || fail "Couldn't create a certificate; see $LOG"
+  fi
+  "$TIZEN" security-profiles add -n "$PROFILE" -a "$AUTHOR" -p "$PW" > "$LOG" 2>&1 || fail "Couldn't create signing profile '$PROFILE'; see $LOG"
   ok "created profile '$PROFILE' (password saved in .env)"
 fi
-"$TIZEN" cli-config "profiles.path=$HOME/tizen-studio-data/profile/profiles.xml" >/dev/null
+"$TIZEN" cli-config "profiles.path=$DATA/profile/profiles.xml" >/dev/null
 
 # --- 4. Connect -------------------------------------------------------------------
 bold "4/4  Connecting to the TV"
